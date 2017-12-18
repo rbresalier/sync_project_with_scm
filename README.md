@@ -39,7 +39,7 @@ https://community.slickedit.com/index.php/topic,3262.30.html
 # History
 * 2017-12-17: Modified by Rob Bresalier to make the file scanning much faster by
   having 1 call to insert_file_list per base directory for all filespecs and all exclusions.
-* 2017-12-03: Modified by Rob Bresalier to use the "&lt;project_name&gt;.ini" file
+* 2013-12-03: Modified by Rob Bresalier to use the "&lt;project_name&gt;.ini" file
 * 2008-2013: Original macro written by mikesart and chrisant
 
 # Format of the SSYNC.INI file:
