@@ -13,6 +13,19 @@ directory as your project ("&lt;project_name&gt;.vpj") file or an
 "&lt;project_name&gt;.ini" or ssync.ini file to describe your projects.
 If both files exist, then "&lt;project_name&gt;.ini" will be used.
 
+This macro still has a big advantage over SlickEdit's native support of
+wildcard adding of files to a project. With SE's wildcard adding, every
+time you open your project it needs to perform a scan to find all the
+files. But with this macro this scan can be done on demand by running the
+'ssync' macro.  When running 'ssync', it saves the list of files to the
+.vpj file so that this list can be reused when you close the project and
+open it again later.  SE's wild card adding only saves the wild card
+patterns to the .vpj file, so every time you open your project, it has to
+rescan.  This rescanning can take a long time if you have 10000s of files
+in a networked drive.  The 'ssync' macro only performs this scanning when
+the user runs 'ssync', and the scanning is now optimized in this latest
+version of 'ssync' to make the scan much faster.
+
 Long term, SlickEdit needs improved native support for efficiently
 automatically updating the list of files in a project.
 
