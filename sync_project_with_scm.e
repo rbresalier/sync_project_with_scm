@@ -44,6 +44,7 @@
  * Static variables.
  */
 static bool s_fReloadIni = true;
+static bool s_fGlobalIniLoaded = false;
 static int s_idIni = -1;
 static int s_isDebugging = 0;
 
@@ -76,6 +77,109 @@ struct CUMULATIVETOTALS
    int cTotal;
 };
 
+static void ini_discard()
+{
+   // Delete our temp view of the ini file, if we have one.
+   if(s_idIni >= 0)
+   {
+      _delete_temp_view(s_idIni);
+      s_idIni = -1;
+   }
+}
+
+static void ini_get_aliases(_str (&aliases):[])
+{
+   aliases._makeempty();
+   // First initialize the predefined set of aliases.
+   aliases:['sources'] =
+               '*.c;*.cc;*.cpp;*.cp;*.cxx;*.c++;':+
+               '*.h;*.hh;*.hpp;*.hxx;*.i;*.inl;':+
+               '*.cs;':+
+               '*.rc;*.rc2;*.pp;*.csv;*.dlg;':+
+               '*.idl;*.odl;':+
+               '*.bat;*.cmd;*.btm;':+
+               '*.pl;*.pm;':+
+               '*.asm;*.inc;':+
+               '*.bas;*.cls;':+
+               '*.rcp;':+
+               '*.lua;':+
+               '*.txt;*.htm;*.html;*.xml;*.php;':+
+               '*.def;*.ini;*.inf;':+
+               'makefile;makefile.*;*.mak;sources;sources.*;dirs;':+
+               'jamfile;jamrules;':+
+               '*.mm*;*.ver;':+
+               '';
+   aliases:['headers'] =
+               '*.h;*.hh;*.hpp;*.hxx;*.i;*.inl;':+
+               '*.idl;*.odl;':+
+               '*.asm;*.inc;':+
+               '*.txt;*.htm;*.html;*.xml;*.php;':+
+               '*.def;*.ini;*.inf;':+
+               'makefile;makefile.*;*.mak;sources;sources.*;dirs;':+
+               'jamfile;jamrules;':+
+               '*.mm*;*.ver;':+
+               '';
+   aliases:['slick'] =
+               '*.e;*.sh;':+
+               '*.c;*.cpp;*.h;':+
+               '*.java;':+
+               '*.rc;':+
+               '*.txt;*.htm;*.html;*.xml;*.php;':+
+               '*.def;*.ini;*.inf;':+
+               'makefile;makefile.*;*.mak;':+
+               '*.mm*;*.ver;':+
+               '';
+
+   // Then read custom aliases from the ini file.
+   int idOrig;
+   save_selection(auto ss);
+   get_window_id(idOrig);
+   activate_window(s_idIni);
+   top();
+   _str line;
+   _str alias;
+   _str list;
+   while(true)
+   {
+      _begin_line();
+
+      // Search for next alias definition.
+      if(0 != search('^[ \t]*\<?+\>[ \t]*=', 'ir'))
+         break;
+
+      // Add the alias definition to the list.
+      get_line(line);
+      parse line with . '<' alias '>' . '=' list;
+      if(length(alias))
+      {
+         _str lcAlias = lowcase(alias);
+         if(list == '')
+         {
+            // An empty alias line (before translation!) deletes the alias.
+            if(aliases._indexin(lcAlias))
+               aliases._deleteel(lcAlias);
+         }
+         else
+         {
+            // Expand any aliases within this alias definition.
+            translate_wildcard_list(list, aliases);
+            list = strip(list);
+            if(!aliases._indexin(lcAlias))
+               aliases:[lcAlias] = '';
+            if(length(aliases:[lcAlias]) && last_char(aliases:[lcAlias]) != ';')
+               aliases:[lcAlias] :+= ';';
+            aliases:[lcAlias] :+= list;
+         }
+      }
+
+      if(down() != 0)
+         break;
+   }
+
+   activate_window(idOrig);
+   restore_selection(ss);
+}
+
 /**
  * Update the file lists for the projects in the current workspace.  Only
  * projects in the "projects" array (near the top of this macro source file)
@@ -91,8 +195,6 @@ _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
    int beginTime = (int) _time('G');
    s_fReloadIni = true;
 
-   //$ todo: (chrisant) Parse the arguments to determine whether to enable
-   // debug output.
    s_isDebugging = 0;
 
    if(_workspace_filename == '')
@@ -103,22 +205,46 @@ _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
 
    // Get the list of projects to sync.
    int status;
+   int ii;
+   _str sOpts;
+   _str sArgs = strip_options(arg(1), sOpts);
    _str arrayProjects[] = null;
-   if(arg(1) == '-a')
+   bool fUsageError = false;
+   if(sOpts != '')
    {
-      status = _GetWorkspaceFiles(_workspace_filename,arrayProjects);
-      if(status)
+      _str arrayOpts[] = null;
+      split(sOpts, ' ', arrayOpts);
+      for(ii = 0; ii < arrayOpts._length(); ii++)
       {
-         _message_box(nls("ssync: Unable to get projects from workspace '%s'.\n\n%s", _workspace_filename, get_message(status)));
-         return;
+         if(arrayOpts[ii] == '-a')
+         {
+            status = _GetWorkspaceFiles(_workspace_filename,arrayProjects);
+            if(status)
+            {
+               _message_box(nls("ssync: Unable to get projects from workspace '%s'.\n\n%s", _workspace_filename, get_message(status)));
+               return;
+            }
+         }
+         else if(substr(arrayOpts[ii], 1, 2) == '-v')
+         {
+            s_isDebugging = (int)substr(arrayOpts[ii], 3);
+         }
+         else
+         {
+            fUsageError = true;
+         }
       }
    }
-   else if(arg() == 0)
+   if(length(sArgs))
+   {
+      fUsageError = true;
+   }
+   if(!arrayProjects._length())
    {
       if(_project_name != '')
          arrayProjects[0] = _project_name
    }
-   else
+   if(fUsageError)
    {
       _message_box("ssync: Syntax error.\n\nUsage:  ssync [-a]\n\nThe -a flag syncs all projects in the workspace.\nOtherwise only syncs the current project.");
       return;
@@ -129,8 +255,8 @@ _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
       return;
    }
 
+   _str aliases:[];
    // Loop over the projects.
-   int ii;
    _str filename = '';
    _str displayname = '';
    CUMULATIVETOTALS totals;
@@ -147,8 +273,11 @@ _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
       if (s_isDebugging)
          say("Scanning project '"filename"'...");
 
-      ssync_project(filename, totals);
+      ssync_project(filename, totals, aliases);
    }
+
+   // Clean up
+   ini_discard();
 
    int endTime = (int) _time('G');
 
@@ -169,13 +298,13 @@ _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
            seconds " seconds");
 }
 
-static void ssync_project(_str project, CUMULATIVETOTALS& totals)
+static void ssync_project(_str project, CUMULATIVETOTALS& totals, _str(&aliases):[])
 {
    // Add the project's dir list.
    _str wksName = _strip_filename(_workspace_filename, 'PE');
    _str projName = _strip_filename(project, 'PE');
    DIRINFO dir_list[];
-   if(!dinfo_get_project(dir_list, projName, wksName,project))
+   if(!dinfo_get_project(dir_list, projName, wksName,project,aliases))
    {
       _message_box(nls("ssync: No dir list for project '%s'.", projName));
       return;
@@ -410,70 +539,39 @@ static int ssync_worker(_str project, DIRINFO (&dir_list)[], CUMULATIVETOTALS& t
 }
 
 /**
- * Translates the specified <i>wildcard_list</i> if it is a special phrase:
- * <ul>
- *    <li>"<sources>" - Expands to common source file wildcards.
- *    <li>"<headers>" - Expands to common header file wildcards.
- *    <li>"<slick>" - Expands to Slick-C wildcards and some others (e.g. to
- *    pick up the sample files).
- * </ul>
- *
- * @param wildcard_list    If this matches one of the special phrases, it is
- *                         replaced with the translated list.  Otherwise the
- *                         parameter is not modified.
- *
- * @return bool         Returns true if <i>wildcard_list</i> was modified.
+ * Translates the specified <i>wildcard_list</i>, replacing aliases in angle
+ * brackets as defined in the <i>aliases</i> array.
  */
-static bool translate_wildcard_list(_str& wildcard_list)
+static void translate_wildcard_list(_str& wildcard_list, _str (&aliases):[])
 {
-   switch(lowcase(wildcard_list))
+   _str list = wildcard_list;
+   wildcard_list = '';
+
+   if(length(list) == 0)
    {
-   case '':
-   case '<sources>':
-      wildcard_list = '*.c;*.cc;*.cpp;*.cp;*.cxx;*.c++;':+
-                      '*.h;*.hh;*.hpp;*.hxx;*.inl;':+
-                      '*.cs;':+
-                      '*.rc;*.rc2;*.pp;*.csv;*.dlg;':+
-                      '*.idl;*.odl;':+
-                      '*.bat;*.cmd;*.btm;':+
-                      '*.pl;*.pm;':+
-                      '*.asm;*.inc;':+
-                      '*.bas;*.cls;':+
-                      '*.rcp;':+
-                      '*.lua;':+
-                      '*.txt;*.htm;*.html;*.xml;*.php;':+
-                      '*.def;*.ini;*.inf;':+
-                      'makefile;makefile.*;*.mak;sources;sources.*;dirs;':+
-                      'jamfile;jamrules;':+
-                      '*.mm*;*.ver;':+
-                      '';
-      break;
-   case '<headers>':
-      wildcard_list = '*.h;*.hh;*.hpp;*.hxx;*.inl;':+
-                      '*.idl;*.odl;':+
-                      '*.asm;*.inc;':+
-                      '*.txt;*.htm;*.html;*.xml;*.php;':+
-                      '*.def;*.ini;*.inf;':+
-                      'makefile;makefile.*;*.mak;sources;sources.*;dirs;':+
-                      'jamfile;jamrules;':+
-                      '*.mm*;*.ver;':+
-                      '';
-      break;
-   case '<slick>':
-      wildcard_list = '*.e;*.sh;':+
-                      '*.c;*.cpp;*.h;':+
-                      '*.java;':+
-                      '*.rc;':+
-                      '*.txt;*.htm;*.html;*.xml;*.php;':+
-                      '*.def;*.ini;*.inf;':+
-                      'makefile;makefile.*;*.mak;':+
-                      '*.mm*;*.ver;':+
-                      '';
-      break;
-   default:
-      return false;
+      if(aliases._indexin('sources'))
+         wildcard_list :+= aliases:['sources'];
    }
-   return true;
+   else
+   {
+      do
+      {
+         parse list with auto a '<' auto b '>' auto c;
+
+         if(length(a))
+            wildcard_list :+= a;
+         if(length(b))
+         {
+            if(aliases._indexin(lowcase(b)))
+               wildcard_list :+= aliases:[lowcase(b)];
+            else
+               wildcard_list :+= '<' :+ b :+ '>';
+         }
+
+         list = c;
+      }
+      while(length(list) != 0);
+   }
 }
 
 /**
@@ -484,7 +582,7 @@ static bool translate_wildcard_list(_str& wildcard_list)
  * @see DIRINFO
  * @see translate_wildcard_list
  */
-static void dinfo_add(DIRINFO (&dir_list)[])
+static void dinfo_add(DIRINFO (&dir_list)[], _str (&aliases):[])
 {
    _begin_select();
    _begin_line();
@@ -544,9 +642,9 @@ static void dinfo_add(DIRINFO (&dir_list)[])
                   if(posEndQuote)
                      di.filespec = substr(di.filespec, 1, posEndQuote - 1);
                }
-               translate_wildcard_list(di.filespec);
             }
          }
+         translate_wildcard_list(di.filespec, aliases);
 
          if(di.dir != '')
          {
@@ -584,7 +682,7 @@ static bool dinfo_find_project(_str projName, _str wksName)
    {
       // Find project.
       _begin_line();
-      if(0 != search('^[ \t]*\[[ \t]*'strip(projName)'[ \t]*\][ \t]*(;?*|)$', 'ir'))
+      if(0 != search('^[ \t]*\[[ \t]*'_escape_re_chars(strip(projName),'r')'[ \t]*\][ \t]*(;?*|)$', 'ir'))
          break;
       int sectionLine = p_line;
 
@@ -629,43 +727,53 @@ static bool dinfo_find_project(_str projName, _str wksName)
  * @param dir_list   Array to which to append.
  * @param projName   Name of project.
  * @param wksName    Name of workspace.
+ * @param aliases    Array of alias definitions.
  *
  * @return bool   Returns true if <i>projName</i> is recognized, otherwise
  *                   returns false.
  *
  * @see DIRINFO
  */
-static bool dinfo_get_project(DIRINFO (&dir_list)[], _str projName, _str wksName, _str project)
+static bool dinfo_get_project(DIRINFO (&dir_list)[], _str projName, _str wksName, _str project, _str (&aliases):[])
 {
+   bool reloadIni = true;
+   bool loadingGlobalIni = false;
+
    // Load the project definitions from the ssync.ini file.
-   if(s_idIni < 0 || s_fReloadIni)
+   // Find ini file.
+
+   // First, we look for a file in the project directory with
+   // filename <project_name>.ini
+   _str iniFile = _strip_filename(project, 'E')'.ini';
+   _str prjIniFile = iniFile;
+   if (path_exists(iniFile))
    {
-      // Delete our temp view of the ini file, if we have one.
-      if(s_idIni >= 0)
-      {
-         _delete_temp_view(s_idIni);
-         s_idIni = -1;
-      }
-      s_fReloadIni = false;
-
-      // Find ini file.
-
-      // First, we look for a file in the project directory with
-      // filename <project_name>.ini
-      _str iniFile = _strip_filename(project, 'E')'.ini';
-      _str prjIniFile = iniFile;
-
+      // Project ini file exists, it must be reloaded
+      reloadIni = true;
+      loadingGlobalIni = false;
+   }
+   else
+   {
       // If <project_name>.ini does not exist, then use 'ssync.ini'
       // in the slickedit configuration directory.
-      if (!path_exists(iniFile)) {
-         iniFile = slick_path_search1("ssync.ini");
-      }
-
-      if(iniFile == '')
+      iniFile = slick_path_search1("ssync.ini");
+      loadingGlobalIni = true;
+      if((s_idIni >= 0) && (!s_fReloadIni) && (s_fGlobalIniLoaded))
       {
-         _message_box("Unable to find ssync.ini or "prjIniFile" file.");
-         return false;
+         reloadIni = false;
       }
+   }
+
+   if(iniFile == '')
+   {
+      _message_box("Unable to find ssync.ini or "prjIniFile" file.");
+      return false;
+   }
+
+   if ( reloadIni )
+   {
+      // Delete our temp view of the ini file, if we have one.
+      ini_discard();
 
       // Create temp view and load ini file.
       int idTmp;
@@ -677,7 +785,17 @@ static bool dinfo_get_project(DIRINFO (&dir_list)[], _str projName, _str wksName
       }
       s_idIni = idTmp;
       get(iniFile);
+      ini_get_aliases(aliases);
       activate_window(idOrig);
+      if ( loadingGlobalIni )
+      {
+         s_fGlobalIniLoaded = true;
+      }
+      else
+      {
+         s_fGlobalIniLoaded = false;
+      }
+      s_fReloadIni = false;
    }
 
    // Find the project in the ini file, then add its entries.
@@ -696,12 +814,12 @@ static bool dinfo_get_project(DIRINFO (&dir_list)[], _str projName, _str wksName
       fProjectFound = true;
 
       // Add the dir list entries.
-      dinfo_add(diProject);
+      dinfo_add(diProject, aliases);
 
       // Insert entries from ALWAYS pseudo-project if it exists.
       top();
       if(dinfo_find_project("ALWAYS", wksName))
-         dinfo_add(diAlways);
+         dinfo_add(diAlways, aliases);
 
       int ii;
       for(ii = 0; ii < diAlways._length(); ii++)

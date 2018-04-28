@@ -29,8 +29,9 @@ version of 'ssync' to make the scan much faster.
 Long term, SlickEdit needs improved native support for efficiently
 automatically updating the list of files in a project.
 
-This macro comes from the following discussion on the SlickEdit forum:
+This macro comes from the following discussions on the SlickEdit forum:
 https://community.slickedit.com/index.php/topic,3262.30.html
+https://community.slickedit.com/index.php/topic,4697.0.html
 
 # Usage
 * Use "ssync" to sync the current project.
@@ -44,6 +45,11 @@ https://community.slickedit.com/index.php/topic,3262.30.html
 
 # Format of the SSYNC.INI file:
 ```
+<wildcard_group>=*.a;*.b;*.c
+<wildcard_group>=*.d;*.e;*.f           (Added to <wildcard_group>)
+<another_group>=*.c;<wildcard_group>   (Include one group in another)
+<wildcard_group>=                      (Clears <wildcard_group> without
+                                        affecting <another_group>)
 [ProjectName]
 workspace=WorkspaceName                (OPTIONAL LINE)
 dir=baseDirectory1, wildcards
@@ -54,6 +60,17 @@ exclude=antpattern1
 exclude=antpattern2
 ...etc
 ```
+
+## wildcard groups
+Angle brackets are used to denote aliases that expand to a group of
+wildcards. Aliases definitions are evaluated in the order they are
+encountered. Appending to an alias or clearing an alias affects subsequent
+expansions, but does not affect preceding references to the alias. Some
+predefined aliases exist:  `<sources>` matches a broad set of common source
+file extensions, `<headers>` matches a broad set of common header file
+extensions, and `<slick>` matches some common Slick-C extensions.
+Any wildcard group that appears after the first [ProjectName] are ignored,
+so make sure to put all of them before the first [ProjectName].
 
 ## workspace line
 The "workspace=" line is optional, and can be used to disambiguate between
