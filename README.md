@@ -36,6 +36,7 @@ https://community.slickedit.com/index.php/topic,4697.0.html
 # Usage
 * Use "ssync" to sync the current project.
 * Use "ssync -a" to sync all projects in the current workspace.
+* Use "ssync -v#" to set debug output level to #.
 
 # History
 * 2017-12-17: Modified by Rob Bresalier to make the file scanning much faster by

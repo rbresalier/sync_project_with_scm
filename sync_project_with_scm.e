@@ -188,6 +188,7 @@ static void ini_get_aliases(_str (&aliases):[])
  * <ul>
  * <li>Use "ssync" to sync the current project.
  * <li>Use "ssync -a" to sync all projects in the current workspace.
+ * <li>Use "ssync -v#" to set debug output level to #.
  * </ul>
  */
 _command void ssync() name_info(','VSARG2_REQUIRES_PROJECT_SUPPORT)
