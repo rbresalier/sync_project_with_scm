@@ -575,6 +575,38 @@ static void translate_wildcard_list(_str& wildcard_list, _str (&aliases):[])
    }
 }
 
+// Reads a line from the current document and takes into account if the line
+// is getting wrapped, it will get the full line including all the wraps.
+// See: https://community.slickedit.com/index.php?topic=19548.new;topicseen#new
+static _str get_full_line()
+{
+   _str line = "";
+   while ( true )
+   {
+      _str linePortion;
+      get_line(linePortion);
+      //dsay("linePortion: " linePortion);
+      line = line linePortion;
+      if ( !(_lineflags()&VSLF_EOL_MISSING ))
+      {
+         // This is the end of the line, it is no longer wrapped or truncated, so return it
+         // Caller is responsible for calling down() to advance to next line.
+         return line;
+      }
+      // Being here means that get_line() didn't read the full line, it wrapped it to
+      // the next line in the editor, so we will need to read the next line.
+      //dsay("not end of line");
+      // Call down() to go to the next line.
+      if (down())
+      {
+         // This means we got to the end of the file
+         return line;
+      }
+   }
+   // Should never reach here.
+   return line;
+}
+
 /**
  * Adds elements to the <i>dir_list</i> array.<br>
  * Assumes the current buffer is the ini file temp view, and that a project
@@ -590,10 +622,9 @@ static void dinfo_add(DIRINFO (&dir_list)[], _str (&aliases):[])
 
    _str line;
    DIRINFO di;
-   int cLines = count_lines_in_selection();
-   while(cLines)
+   while(true)
    {
-      get_line(line);
+      line = get_full_line();
 
       if(pos('[ \t]*dir[ \t]*=[ \t]*{\+|}{?@}', line, 1, 'ir') == 1)
       {
@@ -668,8 +699,10 @@ static void dinfo_add(DIRINFO (&dir_list)[], _str (&aliases):[])
          dir_list[dir_list._length()] = di;
       }
 
-      down();
-      cLines--;
+      if (down())
+      {
+         break;
+      }
    }
 }
 
